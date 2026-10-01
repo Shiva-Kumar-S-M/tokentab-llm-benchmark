@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-from openai import OpenAI, APIError
+from openai import APIError, OpenAI
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from tokentab.providers import PROVIDERS
