@@ -3,6 +3,7 @@ Benchmark execution module for TokenTab.
 
 Handles streaming chat completion API calls to OpenAI-compatible endpoints,
 measuring TTFT (time-to-first-token), total latency, token usage, and estimating cost.
+Retries transient API errors using tenacity.
 """
 
 import os
@@ -10,7 +11,9 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-from openai import OpenAI
+from openai import OpenAI, APIError
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
 from tokentab.providers import PROVIDERS
 
 
@@ -45,6 +48,22 @@ def estimate_tokens_fallback(text: str) -> int:
     return max(1, int(words * 1.33))
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type((APIError, TimeoutError, ConnectionError)),
+    reraise=True,
+)
+def _create_stream_with_retry(client: OpenAI, model: str, prompt: str):
+    """Helper function to initiate chat completion stream with tenacity retry."""
+    return client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        stream=True,
+        stream_options={"include_usage": True},
+    )
+
+
 def run_single_benchmark(
     provider_key: str,
     prompt: str,
@@ -53,6 +72,7 @@ def run_single_benchmark(
     """
     Execute a streaming chat completion call for a single provider and prompt.
     Measures TTFT and total duration. Extracts or estimates token counts.
+    Retries API errors up to 3 times with exponential backoff.
     """
     if provider_key not in PROVIDERS:
         raise ValueError(f"Unknown provider '{provider_key}'. Available: {list(PROVIDERS.keys())}")
@@ -73,12 +93,7 @@ def run_single_benchmark(
     completion_tokens = 0
     token_usage_estimated = False
 
-    stream = client.chat.completions.create(
-        model=config["model"],
-        messages=[{"role": "user", "content": prompt}],
-        stream=True,
-        stream_options={"include_usage": True},
-    )
+    stream = _create_stream_with_retry(client, config["model"], prompt)
 
     for chunk in stream:
         if chunk.choices and len(chunk.choices) > 0:
