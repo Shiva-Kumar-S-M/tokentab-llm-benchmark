@@ -17,7 +17,7 @@ from tokentab.benchmark import BenchmarkResult
 def render_results_table(results: Sequence[BenchmarkResult]) -> None:
     """Render a styled Rich table summarizing benchmark results."""
     console = Console()
-    table = Table(title="⚡ TokenTab LLM Benchmark Results ⚡", show_header=True, header_style="bold magenta")
+    table = Table(title="TokenTab LLM Benchmark Results", show_header=True, header_style="bold magenta")
 
     table.add_column("Provider", style="cyan", justify="left")
     table.add_column("Model", style="blue", justify="left")

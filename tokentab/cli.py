@@ -61,22 +61,22 @@ def main(argv: Optional[List[str]] = None) -> None:
     prompts = [parsed.prompt] if parsed.prompt else DEFAULT_PROMPTS
     results: List[BenchmarkResult] = []
 
-    console.print("[bold cyan]🚀 Starting TokenTab LLM Benchmark...[/bold cyan]")
+    console.print("[bold cyan]Starting TokenTab LLM Benchmark...[/bold cyan]")
 
     for prompt in prompts:
         console.print(f"\n[bold yellow]Prompt:[/bold yellow] [italic]'{prompt}'[/italic]")
         for provider_key in parsed.providers:
-            console.print(f"  → Running benchmark on [bold magenta]{provider_key}[/bold magenta]...")
+            console.print(f"  Running benchmark on [bold magenta]{provider_key}[/bold magenta]...")
             try:
                 res = run_single_benchmark(provider_key, prompt)
                 results.append(res)
             except Exception as e:
-                console.print(f"  [bold red]✖ Error running {provider_key}: {e}[/bold red]")
+                console.print(f"  [bold red]Error running {provider_key}: {e}[/bold red]")
 
     if results:
         render_results_table(results)
         csv_path = export_results_to_csv(results, parsed.output)
-        console.print(f"[bold green]✔ Results saved to {csv_path.resolve()}[/bold green]")
+        console.print(f"[bold green]Results saved to {csv_path.resolve()}[/bold green]")
     else:
         console.print("[bold red]No benchmark results collected.[/bold red]")
 
