@@ -6,15 +6,24 @@ measuring TTFT (time-to-first-token), total latency, token usage, and estimating
 Retries transient API errors using tenacity.
 """
 
+import logging
 import os
 import time
+import warnings
 from dataclasses import dataclass
 from typing import Optional
 
 from openai import APIError, OpenAI
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from tokentab.providers import PROVIDERS
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -32,7 +41,7 @@ class BenchmarkResult:
 
 
 def calculate_cost(provider_key: str, prompt_tokens: int, completion_tokens: int) -> float:
-    """Calculate total estimated cost based on per-1M token rates."""
+    """Calculate total estimated cost based on per-1M$token rates."""
     config = PROVIDERS.get(provider_key, {})
     price_in = config.get("price_input_per_1m", 0.0)
     price_out = config.get("price_output_per_1m", 0.0)
@@ -52,6 +61,7 @@ def estimate_tokens_fallback(text: str) -> int:
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=1, max=10),
     retry=retry_if_exception_type((APIError, TimeoutError, ConnectionError)),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
 def _create_stream_with_retry(client: OpenAI, model: str, prompt: str):
@@ -78,7 +88,15 @@ def run_single_benchmark(
         raise ValueError(f"Unknown provider '{provider_key}'. Available: {list(PROVIDERS.keys())}")
 
     config = PROVIDERS[provider_key]
-    api_key = os.environ.get(config["api_key_env"], "mock_key")
+    logger.info("Benchmarking provider '%s' (model '%s')", provider_key, config["model"])
+    api_key = os.environ.get(config["api_key_env"])
+    if not api_key:
+        warnings.warn(
+            f"Environment variable {config['api_key_env']} is not set; "
+            "falling back to a placeholder API key. Requests will likely fail.",
+            stacklevel=2,
+        )
+        api_key = "mock_key"
 
     if client is None:
         client = OpenAI(
@@ -112,12 +130,25 @@ def run_single_benchmark(
     ttft_sec = (first_token_time - start_time) if first_token_time else total_time_sec
 
     if prompt_tokens == 0 and completion_tokens == 0:
+        logger.warning(
+            "No usage data in stream for '%s'; estimating token counts",
+            provider_key,
+        )
         token_usage_estimated = True
         prompt_tokens = estimate_tokens_fallback(prompt)
         completion_tokens = estimate_tokens_fallback(accumulated_text)
 
     total_tokens = prompt_tokens + completion_tokens
     cost = calculate_cost(provider_key, prompt_tokens, completion_tokens)
+
+    logger.info(
+        "Completed '%s' in %.3fs (TTFT %.3fs, %d tokens%s)",
+        provider_key,
+        total_time_sec,
+        ttft_sec,
+        total_tokens,
+        ", estimated" if token_usage_estimated else "",
+    )
 
     return BenchmarkResult(
         provider=provider_key,
